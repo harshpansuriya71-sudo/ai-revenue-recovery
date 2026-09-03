@@ -20,7 +20,7 @@ import {
  * which is what the case timeline in the UI renders.
  */
 
-const MODEL = process.env.GEMINI_MODEL ?? "gemini-2.5-flash";
+const MODEL = process.env.GEMINI_MODEL ?? "gemini-3.6-flash";
 const MAX_TURNS = 8;
 
 export interface AgentDecision {

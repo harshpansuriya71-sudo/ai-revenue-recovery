@@ -205,12 +205,28 @@ export async function executeTool(
     case "schedule_retry": {
       const retryAt = String(args.retry_at);
       const method = String(args.method);
+      const parsed = new Date(retryAt).getTime();
+      const hoursOut = (parsed - Date.now()) / 3600000;
+
+      // Reject before persisting. A retry scheduled in the past never fires, and the model
+      // will otherwise anchor to the payment's failure time rather than to now.
+      if (Number.isNaN(parsed)) {
+        return { scheduled: false, error: `retry_at "${retryAt}" is not a valid ISO 8601 timestamp.` };
+      }
+      if (hoursOut <= 0) {
+        return {
+          scheduled: false,
+          error:
+            `retry_at ${retryAt} is in the past. The current time is ${new Date().toISOString()}. ` +
+            `Choose a time after that and call schedule_retry again.`,
+        };
+      }
+
       updateCase(ctx.caseId, {
         status: "scheduled",
         retry_at: retryAt,
         retry_method: method,
       });
-      const hoursOut = (new Date(retryAt).getTime() - Date.now()) / 3600000;
       return {
         scheduled: true,
         retry_at: retryAt,

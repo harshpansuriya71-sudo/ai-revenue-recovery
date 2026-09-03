@@ -3,6 +3,18 @@ import { randomUUID } from "node:crypto";
 
 /** All SQL lives here so the routes and the agent tools stay readable. */
 
+/**
+ * node:sqlite returns rows with a null prototype. React refuses to serialise those across
+ * the server/client boundary ("Only plain objects ... can be passed to Client Components"),
+ * so every row leaving this module is copied into an ordinary object first.
+ */
+function plain<T>(row: unknown): T {
+  return { ...(row as object) } as T;
+}
+function plainAll<T>(rows: unknown[]): T[] {
+  return rows.map((r) => ({ ...(r as object) })) as T[];
+}
+
 export interface PaymentRow {
   id: string;
   order_id: string;
@@ -88,7 +100,8 @@ export function upsertCustomer(c: CustomerRow) {
 }
 
 export function getCustomer(id: string): CustomerRow | undefined {
-  return getDb().prepare(`SELECT * FROM customers WHERE id = ?`).get(id) as CustomerRow | undefined;
+  const row = getDb().prepare(`SELECT * FROM customers WHERE id = ?`).get(id);
+  return row ? plain<CustomerRow>(row) : undefined;
 }
 
 /* ----------------------------------------------------------------- payments */
@@ -110,7 +123,8 @@ export function upsertPayment(p: PaymentRow) {
 }
 
 export function getPayment(id: string): PaymentRow | undefined {
-  return getDb().prepare(`SELECT * FROM payments WHERE id = ?`).get(id) as PaymentRow | undefined;
+  const row = getDb().prepare(`SELECT * FROM payments WHERE id = ?`).get(id);
+  return row ? plain<PaymentRow>(row) : undefined;
 }
 
 export function setPaymentStatus(id: string, status: string) {
@@ -119,14 +133,15 @@ export function setPaymentStatus(id: string, status: string) {
 
 /** Prior failed payments for the same customer — the agent uses this to spot repeat trouble. */
 export function customerFailureHistory(customerId: string, excludePaymentId: string) {
-  return getDb()
+  const rows = getDb()
     .prepare(
       `SELECT id, amount_paise, method, error_reason, failed_at, status
        FROM payments
        WHERE customer_id = ? AND id != ?
        ORDER BY failed_at DESC LIMIT 10`
     )
-    .all(customerId, excludePaymentId) as Array<Record<string, unknown>>;
+    .all(customerId, excludePaymentId);
+  return plainAll<Record<string, unknown>>(rows);
 }
 
 /* -------------------------------------------------------------------- cases */
@@ -147,13 +162,15 @@ export function createCase(paymentId: string): CaseRow {
 }
 
 export function getCase(id: string): CaseRow | undefined {
-  return getDb().prepare(`SELECT * FROM recovery_cases WHERE id = ?`).get(id) as CaseRow | undefined;
+  const row = getDb().prepare(`SELECT * FROM recovery_cases WHERE id = ?`).get(id);
+  return row ? plain<CaseRow>(row) : undefined;
 }
 
 export function getCaseByPayment(paymentId: string): CaseRow | undefined {
-  return getDb()
+  const row = getDb()
     .prepare(`SELECT * FROM recovery_cases WHERE payment_id = ? ORDER BY created_at DESC LIMIT 1`)
-    .get(paymentId) as CaseRow | undefined;
+    .get(paymentId);
+  return row ? plain<CaseRow>(row) : undefined;
 }
 
 export function updateCase(id: string, patch: Partial<CaseRow>) {
@@ -197,15 +214,16 @@ export function logAction(a: {
 }
 
 export function getActions(caseId: string): ActionRow[] {
-  return getDb()
+  const rows = getDb()
     .prepare(`SELECT * FROM agent_actions WHERE case_id = ? ORDER BY seq ASC`)
-    .all(caseId) as unknown as ActionRow[];
+    .all(caseId);
+  return plainAll<ActionRow>(rows);
 }
 
 /* --------------------------------------------------------------- dashboard */
 
 export function listCases(limit = 100) {
-  return getDb()
+  const rows = getDb()
     .prepare(
       `SELECT c.*, p.amount_paise, p.method, p.bank, p.error_reason, p.description,
               p.failed_at, p.is_recurring, cu.name AS customer_name, cu.email AS customer_email
@@ -215,7 +233,8 @@ export function listCases(limit = 100) {
        ORDER BY p.failed_at DESC
        LIMIT ?`
     )
-    .all(limit) as Array<Record<string, unknown>>;
+    .all(limit);
+  return plainAll<Record<string, unknown>>(rows);
 }
 
 export function stats() {
@@ -232,22 +251,22 @@ export function stats() {
     .get() as { n: number };
   const total = db.prepare(`SELECT COUNT(*) AS n FROM recovery_cases`).get() as { n: number };
 
-  const byReason = db
+  const byReasonRaw = db
     .prepare(
       `SELECT error_reason AS reason, COUNT(*) AS count, SUM(amount_paise) AS amount_paise
        FROM payments WHERE error_reason IS NOT NULL
        GROUP BY error_reason ORDER BY amount_paise DESC`
     )
-    .all() as Array<{ reason: string; count: number; amount_paise: number }>;
+    .all();
 
-  const byStrategy = db
+  const byStrategyRaw = db
     .prepare(
       `SELECT strategy, COUNT(*) AS count FROM recovery_cases
        WHERE strategy IS NOT NULL GROUP BY strategy ORDER BY count DESC`
     )
-    .all() as Array<{ strategy: string; count: number }>;
+    .all();
 
-  const timeline = db
+  const timelineRaw = db
     .prepare(
       `SELECT date(p.failed_at) AS day,
               SUM(p.amount_paise) AS at_risk_paise,
@@ -257,7 +276,11 @@ export function stats() {
        WHERE p.failed_at IS NOT NULL
        GROUP BY day ORDER BY day ASC`
     )
-    .all() as Array<{ day: string; at_risk_paise: number; recovered_paise: number }>;
+    .all();
+
+  const byReason = plainAll<{ reason: string; count: number; amount_paise: number }>(byReasonRaw);
+  const byStrategy = plainAll<{ strategy: string; count: number }>(byStrategyRaw);
+  const timeline = plainAll<{ day: string; at_risk_paise: number; recovered_paise: number }>(timelineRaw);
 
   return {
     atRiskPaise: atRisk.v,

@@ -92,7 +92,15 @@ export function buildCaseBrief(input: {
   failedAt: string | null;
 }) {
   const rupees = (input.amountPaise / 100).toLocaleString("en-IN");
-  return `A payment has just failed. Work this case.
+  const now = new Date();
+  // Without an explicit "now", the model anchors retry times to the payment's failure
+  // timestamp and schedules retries in the past.
+  return `Current time: ${now.toISOString()} (${now.toLocaleString("en-IN", {
+    timeZone: "Asia/Kolkata",
+  })} IST)
+Any retry you schedule MUST be later than the current time above.
+
+A payment has failed. Work this case.
 
 Payment ID:   ${input.paymentId}
 Amount:       ₹${rupees} (${input.amountPaise} paise)
