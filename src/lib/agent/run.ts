@@ -47,6 +47,19 @@ export type AgentEvent =
 
 export type AgentEventHandler = (event: AgentEvent) => void;
 
+/**
+ * Where a worked case ends up.
+ *
+ * `working` is set when the run starts and only `schedule_retry` and `mark_uncollectible`
+ * moved it on, so a case that ended in a payment link stayed "working" forever and read as
+ * stuck on the dashboard. A link sent to the customer is a case awaiting their action.
+ */
+function finalStatus(current: string | undefined, paymentLinkUrl: string | null | undefined) {
+  if (current === "uncollectible" || current === "scheduled") return current;
+  if (paymentLinkUrl) return "awaiting_customer";
+  return current ?? "working";
+}
+
 function parseDecision(text: string): Partial<AgentDecision> {
   // Models commonly wrap JSON in a fenced block; tolerate both shapes.
   const fenced = text.match(/```(?:json)?\s*([\s\S]*?)```/);
@@ -165,6 +178,7 @@ export async function runAgentOnPayment(
   // dashboard reflects what was actually spent rather than the happy path.
   const counter = { calls: 0 };
 
+  try {
   for (let turn = 0; turn < MAX_TURNS; turn++) {
     const response = await generateWithBackoff(ai, contents, counter);
 
@@ -201,6 +215,16 @@ export async function runAgentOnPayment(
     }
     contents.push({ role: "user", parts: resultParts });
   }
+  } catch (err) {
+    // Release the case rather than stranding it. A run that dies mid-way used to leave the
+    // status on "working" forever, so it never reappeared as available to work again.
+    updateCase(kase.id, { status: "pending", model_calls: counter.calls });
+    onEvent?.({
+      type: "error",
+      message: err instanceof Error ? err.message : String(err),
+    });
+    throw err;
+  }
 
   const decision = parseDecision(finalText);
   const strategy = decision.strategy ?? "RETRY_SAME";
@@ -234,11 +258,7 @@ export async function runAgentOnPayment(
     approval_reason: current?.approval_reason ?? policy.reason,
     approval_status: needsApproval ? "pending" : "not_required",
     // A held case is not resolved, whatever the agent concluded.
-    status: needsApproval
-      ? "pending_approval"
-      : current?.status === "uncollectible"
-        ? "uncollectible"
-        : (current?.status ?? "working"),
+    status: needsApproval ? "pending_approval" : finalStatus(current?.status, current?.payment_link_url),
   });
 
   const finalDecision: AgentDecision = {

@@ -47,6 +47,10 @@ export function statusTone(status: string): Tone {
       return "danger";
     case "scheduled":
       return "accent";
+    case "awaiting_customer":
+      return "violet";
+    case "pending_approval":
+      return "warning";
     case "working":
       return "warning";
     default:

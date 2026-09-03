@@ -28,8 +28,11 @@ function main() {
   );
   console.log(`  ${"-".repeat(52)}`);
   console.log(`  Difference                  ${rupees(base.deltaPaise).padStart(10)}\n`);
+  // These are worked cases that did not recover, not cases the agent has yet to see.
+  const unworked = s.casesTotal - s.casesWorked;
   console.log(
-    `  Still unworked: ${rupees(s.atRiskPaise)} across ${s.failedCount} payments.`
+    `  Not recovered: ${rupees(s.atRiskPaise)} across ${s.failedCount} payments` +
+      (unworked > 0 ? ` · ${unworked} cases not yet worked.` : " · every case worked.")
   );
   console.log("  (Outcomes are simulated — see src/lib/outcomes.ts)\n");
 }
