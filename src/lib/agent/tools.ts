@@ -1,6 +1,7 @@
 import { Type, type FunctionDeclaration } from "@google/genai";
 import { getBankHealth } from "../bank-health";
 import { createPaymentLink } from "../razorpay";
+import { evaluatePolicy } from "../policy";
 import {
   customerFailureHistory,
   getCase,
@@ -262,6 +263,38 @@ export async function executeTool(
     }
 
     case "create_payment_link": {
+      // Autonomy policy. A high-value link is prepared but NOT created — no Razorpay call
+      // happens until a person releases it. Labelling an action after it has already fired
+      // would be theatre, not control.
+      const policy = evaluatePolicy({
+        amountPaise: ctx.payment.amount_paise,
+        strategy: null,
+        customerLtvPaise: ctx.customer.lifetime_value_paise,
+        priorSuccessCount: ctx.customer.prior_success_count,
+      });
+
+      if (policy.tier === "approval") {
+        updateCase(ctx.caseId, {
+          approval_tier: policy.tier,
+          approval_reason: policy.reason,
+          approval_status: "pending",
+          pending_action: JSON.stringify({
+            type: "create_payment_link",
+            expiry_hours: Number(args.expiry_hours ?? 48),
+          }),
+        });
+        return {
+          held_for_approval: true,
+          amount_rupees: ctx.payment.amount_paise / 100,
+          reason: policy.reason,
+          note:
+            "The payment link has been prepared but not created — this amount requires merchant " +
+            "approval before anything is sent to the customer. Continue and finish the case: " +
+            "write the customer message with draft_nudge, and it will go out when the merchant " +
+            "releases the action.",
+        };
+      }
+
       const link = await createPaymentLink({
         amountPaise: ctx.payment.amount_paise,
         description: ctx.payment.description,
@@ -274,6 +307,9 @@ export async function executeTool(
       updateCase(ctx.caseId, {
         payment_link_url: link.short_url,
         payment_link_id: link.id,
+        approval_tier: policy.tier,
+        approval_reason: policy.reason,
+        approval_status: "not_required",
       });
       return {
         payment_link_url: link.short_url,

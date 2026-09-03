@@ -1,5 +1,6 @@
 import { GoogleGenAI, type Content, type Part } from "@google/genai";
 import { SYSTEM_PROMPT, buildCaseBrief } from "./prompt";
+import { evaluatePolicy } from "../policy";
 import { TOOL_DECLARATIONS, runAndLog, type ToolContext } from "./tools";
 import {
   createCase,
@@ -72,10 +73,15 @@ function parseDecision(text: string): Partial<AgentDecision> {
  * routinely. A 429 mid-demo is indistinguishable from a broken agent, so retry with backoff
  * rather than surfacing it.
  */
-async function generateWithBackoff(ai: GoogleGenAI, contents: Content[]) {
+async function generateWithBackoff(
+  ai: GoogleGenAI,
+  contents: Content[],
+  counter: { calls: number }
+) {
   const delays = [3000, 8000, 20000, 40000, 60000];
   for (let attempt = 0; ; attempt++) {
     try {
+      counter.calls += 1;
       return await ai.models.generateContent({
         model: MODEL,
         contents,
@@ -150,9 +156,12 @@ export async function runAgentOnPayment(
   ];
 
   let finalText = "";
+  // Counting every model call, including backoff retries, so the cost figure on the
+  // dashboard reflects what was actually spent rather than the happy path.
+  const counter = { calls: 0 };
 
   for (let turn = 0; turn < MAX_TURNS; turn++) {
-    const response = await generateWithBackoff(ai, contents);
+    const response = await generateWithBackoff(ai, contents, counter);
 
     const parts = response.candidates?.[0]?.content?.parts ?? [];
     const calls = response.functionCalls ?? [];
@@ -198,13 +207,33 @@ export async function runAgentOnPayment(
   });
 
   const current = getCase(kase.id);
+
+  // Writing off a valuable customer is the least reversible thing the agent can do, so the
+  // policy is applied to the decision itself, not only to the money-moving tools.
+  const policy = evaluatePolicy({
+    amountPaise: payment.amount_paise,
+    strategy,
+    customerLtvPaise: customer.lifetime_value_paise,
+    priorSuccessCount: customer.prior_success_count,
+  });
+  const alreadyHeld = current?.approval_status === "pending";
+  const needsApproval = alreadyHeld || policy.tier === "approval";
+
   updateCase(kase.id, {
     diagnosis: decision.diagnosis ?? null,
     strategy,
     reasoning: decision.reasoning ?? null,
     confidence: decision.confidence ?? null,
-    // mark_uncollectible already set a terminal status; don't overwrite it.
-    status: current?.status === "uncollectible" ? "uncollectible" : (current?.status ?? "working"),
+    model_calls: counter.calls,
+    approval_tier: policy.tier,
+    approval_reason: current?.approval_reason ?? policy.reason,
+    approval_status: needsApproval ? "pending" : "not_required",
+    // A held case is not resolved, whatever the agent concluded.
+    status: needsApproval
+      ? "pending_approval"
+      : current?.status === "uncollectible"
+        ? "uncollectible"
+        : (current?.status ?? "working"),
   });
 
   const finalDecision: AgentDecision = {

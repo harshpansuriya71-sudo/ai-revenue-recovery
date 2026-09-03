@@ -75,6 +75,12 @@ function migrate(db: DatabaseSync) {
       nudge_channel      TEXT,
       nudge_message      TEXT,
       recovered_paise    INTEGER NOT NULL DEFAULT 0,
+      -- autonomy policy: whether the agent could act alone, and what is waiting on a human
+      approval_tier      TEXT,                    -- auto | notify | approval
+      approval_reason    TEXT,
+      approval_status    TEXT,                    -- not_required | pending | approved | rejected
+      pending_action     TEXT,                    -- JSON: the action held back, executed on approval
+      model_calls        INTEGER NOT NULL DEFAULT 0,
       created_at         TEXT NOT NULL,
       resolved_at        TEXT
     );
@@ -96,6 +102,29 @@ function migrate(db: DatabaseSync) {
     CREATE INDEX IF NOT EXISTS idx_cases_payment    ON recovery_cases(payment_id);
     CREATE INDEX IF NOT EXISTS idx_actions_case     ON agent_actions(case_id, seq);
   `);
+
+  addMissingColumns(db);
+}
+
+/**
+ * SQLite has no `ADD COLUMN IF NOT EXISTS`, and an existing demo database predates the
+ * autonomy and cost columns. Add them one by one and ignore the duplicate-column error.
+ */
+function addMissingColumns(db: DatabaseSync) {
+  const additions = [
+    "ALTER TABLE recovery_cases ADD COLUMN approval_tier TEXT",
+    "ALTER TABLE recovery_cases ADD COLUMN approval_reason TEXT",
+    "ALTER TABLE recovery_cases ADD COLUMN approval_status TEXT",
+    "ALTER TABLE recovery_cases ADD COLUMN pending_action TEXT",
+    "ALTER TABLE recovery_cases ADD COLUMN model_calls INTEGER NOT NULL DEFAULT 0",
+  ];
+  for (const sql of additions) {
+    try {
+      db.exec(sql);
+    } catch {
+      // already present
+    }
+  }
 }
 
 export function resetDb() {

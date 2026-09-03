@@ -61,6 +61,11 @@ export interface CaseRow {
   nudge_channel: string | null;
   nudge_message: string | null;
   recovered_paise: number;
+  approval_tier: string | null;
+  approval_reason: string | null;
+  approval_status: string | null;
+  pending_action: string | null;
+  model_calls: number;
   created_at: string;
   resolved_at: string | null;
 }
@@ -318,4 +323,21 @@ export function getCaseDetail(caseId: string) {
     )
     .get(caseId);
   return row ? plain<Record<string, unknown>>(row) : undefined;
+}
+
+/** Cases the autonomy policy held back, awaiting a human decision. */
+export function pendingApprovals() {
+  const rows = getDb()
+    .prepare(
+      `SELECT c.id, c.strategy, c.approval_reason, c.diagnosis,
+              p.amount_paise, p.description,
+              cu.name AS customer_name
+       FROM recovery_cases c
+       JOIN payments p   ON p.id = c.payment_id
+       JOIN customers cu ON cu.id = p.customer_id
+       WHERE c.approval_status = 'pending'
+       ORDER BY p.amount_paise DESC`
+    )
+    .all();
+  return plainAll<Record<string, unknown>>(rows);
 }

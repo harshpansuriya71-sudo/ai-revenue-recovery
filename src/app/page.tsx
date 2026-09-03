@@ -1,4 +1,4 @@
-import { listCases, stats } from "@/lib/queries";
+import { listCases, pendingApprovals, stats } from "@/lib/queries";
 import { rupees, percent } from "@/lib/format";
 import { StatCard } from "@/components/StatCard";
 import { RecoveryChart } from "@/components/RecoveryChart";
@@ -7,6 +7,11 @@ import { CaseTable, type CaseListRow } from "@/components/CaseTable";
 import { RunAllButton } from "@/components/RunAllButton";
 import { BaselineCompare } from "@/components/BaselineCompare";
 import { baselineComparison } from "@/lib/outcomes";
+import { buildPlaybook } from "@/lib/playbook";
+import { computeEconomics } from "@/lib/economics";
+import { Playbook } from "@/components/Playbook";
+import { ApprovalQueue, type PendingCase } from "@/components/ApprovalQueue";
+import { Economics } from "@/components/Economics";
 
 // Every load reflects current database state; the agent changes it as it works.
 export const dynamic = "force-dynamic";
@@ -15,6 +20,9 @@ export default function DashboardPage() {
   const s = stats();
   const cases = listCases(200) as unknown as CaseListRow[];
   const base = baselineComparison();
+  const insights = buildPlaybook();
+  const econ = computeEconomics();
+  const pending = pendingApprovals() as unknown as PendingCase[];
 
   const unworked = cases.filter((c) => !c.strategy);
 
@@ -41,6 +49,12 @@ export default function DashboardPage() {
         </div>
         <RunAllButton pending={unworked.length} />
       </header>
+
+      {pending.length > 0 && (
+        <div className="mt-6">
+          <ApprovalQueue cases={pending} />
+        </div>
+      )}
 
       <section className="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <StatCard
@@ -103,6 +117,11 @@ export default function DashboardPage() {
           </div>
         </section>
       )}
+
+      <section className="mt-6 grid gap-4 lg:grid-cols-[1.5fr_1fr]">
+        <Playbook insights={insights} />
+        <Economics econ={econ} />
+      </section>
 
       <section className="mt-6">
         <CaseTable rows={cases} />

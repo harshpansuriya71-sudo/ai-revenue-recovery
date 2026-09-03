@@ -54,6 +54,23 @@ export interface PaymentLinkResult {
   short_url: string;
   simulated: boolean;
   note?: string;
+  /** Set when Razorpay refused the request — the caller should surface this, not crash. */
+  error?: string;
+}
+
+/**
+ * Razorpay test mode caps payment links at 30, and a busy demo reaches that. Extract a
+ * readable reason so a hard cap reads as a limit rather than as a broken integration.
+ */
+function describeRazorpayError(err: unknown): string {
+  const e = err as { statusCode?: number; error?: { description?: string; code?: string } };
+  const description = e?.error?.description;
+  if (description) {
+    return e.statusCode === 429
+      ? `Razorpay test-mode limit reached: ${description}. Live links already created still work.`
+      : `Razorpay rejected the request: ${description}`;
+  }
+  return err instanceof Error ? err.message : String(err);
 }
 
 export async function createPaymentLink(params: {
@@ -79,6 +96,32 @@ export async function createPaymentLink(params: {
     };
   }
 
+  try {
+    return await createLive(params, expireBy);
+  } catch (err) {
+    // Never throw out of here: a refused link should reach the agent and the UI as a stated
+    // result it can reason about, not as a 500.
+    return {
+      id: "",
+      short_url: "",
+      simulated: false,
+      error: describeRazorpayError(err),
+    };
+  }
+}
+
+async function createLive(
+  params: {
+    amountPaise: number;
+    description: string;
+    customerName: string;
+    customerEmail: string;
+    customerPhone: string;
+    expiryHours: number;
+    referencePaymentId: string;
+  },
+  expireBy: number
+): Promise<PaymentLinkResult> {
   const link = await getClient().paymentLink.create({
     amount: params.amountPaise,
     currency: "INR",
