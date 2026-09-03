@@ -119,6 +119,9 @@ function workedCases(onlyUnsettled: boolean): WorkedRow[] {
        JOIN payments p   ON p.id = c.payment_id
        JOIN customers cu ON cu.id = p.customer_id
        WHERE c.strategy IS NOT NULL
+         -- A case still awaiting merchant approval has not acted, so it cannot have an
+         -- outcome. Settling it would credit the agent with a recovery it never attempted.
+         AND (c.approval_status IS NULL OR c.approval_status != 'pending')
        ${onlyUnsettled ? "AND c.status NOT IN ('recovered', 'uncollectible')" : ""}`
     )
     .all() as unknown as WorkedRow[];
