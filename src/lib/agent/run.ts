@@ -93,18 +93,23 @@ async function generateWithBackoff(
       });
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
+      // 503 UNAVAILABLE is transient model overload, not a quota problem — it deserves the
+      // same backoff, and failing the whole case on it wastes the work already done.
       const rateLimited = message.includes("429") || message.includes("RESOURCE_EXHAUSTED");
-      if (!rateLimited) throw err;
+      const overloaded = message.includes("503") || message.includes("UNAVAILABLE");
+      if (!rateLimited && !overloaded) throw err;
 
       // A per-day cap will not clear by waiting a minute, so stop retrying and say so
       // plainly. Silently backing off looks identical to a hung agent.
-      const dailyCap = message.includes("PerDay");
+      const dailyCap = rateLimited && message.includes("PerDay");
       if (dailyCap || attempt >= delays.length) {
         throw new Error(
           dailyCap
             ? "Gemini free-tier daily request limit reached (500/day). It resets at midnight " +
               "Pacific time. Existing worked cases are unaffected."
-            : "Gemini rate limit persisted after several retries. Wait a minute and try again."
+            : overloaded
+              ? "The model is overloaded right now and did not recover after several retries. Try again shortly."
+              : "Gemini rate limit persisted after several retries. Wait a minute and try again."
         );
       }
       await new Promise((r) => setTimeout(r, delays[attempt]));

@@ -27,6 +27,7 @@ interface EvalContext {
   strategy: string;
   toolsCalled: string[];
   retryAt: string | null;
+  retryMethod: string | null;
   retryScheduled: boolean;
   paymentLink: string | null;
   bank: string | null;
@@ -81,16 +82,21 @@ const checksBankHealth: Check = {
 };
 
 const retryAfterOutageClears: Check = {
-  name: "schedules after the outage clears",
+  name: "does not retry into a known outage",
   assert: (c) => {
     if (!c.retryAt || !c.bank) return null;
     const health = getBankHealth(c.bank);
     if (health.status === "healthy" || health.estimatedRecoveryMinutes == null) return null;
-    // Only meaningful when retrying the rail that is actually down.
+
+    // Routing around the outage is a valid answer — an issuer is usually degraded on one
+    // rail, not all of them. Only a retry on the *affected* rail has to wait it out.
+    const affected = health.affectedMethods.includes(c.retryMethod ?? "");
+    if (!affected) return null;
+
     const clearsAt = Date.now() + health.estimatedRecoveryMinutes * 60000;
     return new Date(c.retryAt).getTime() >= clearsAt - 5 * 60000
       ? null
-      : `retry at ${c.retryAt} lands before ${c.bank} recovers (~${health.estimatedRecoveryMinutes}m)`;
+      : `retry on ${c.retryMethod} at ${c.retryAt} lands before ${c.bank} ${c.retryMethod} recovers (~${health.estimatedRecoveryMinutes}m)`;
   },
 };
 
@@ -270,6 +276,7 @@ async function main() {
       strategy: decision.strategy,
       toolsCalled,
       retryAt: kase.retry_at,
+      retryMethod: kase.retry_method,
       retryScheduled,
       paymentLink: kase.payment_link_url,
       bank: f.bank,
