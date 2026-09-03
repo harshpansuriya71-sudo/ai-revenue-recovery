@@ -282,7 +282,12 @@ export function stats() {
   const byStrategy = plainAll<{ strategy: string; count: number }>(byStrategyRaw);
   const timeline = plainAll<{ day: string; at_risk_paise: number; recovered_paise: number }>(timelineRaw);
 
+  // Total exposure = still-failing + already-recovered. Reporting only the still-failing
+  // half makes "recovered" look larger than "at risk", which reads as nonsense.
+  const totalAtRiskPaise = atRisk.v + recovered.v;
+
   return {
+    totalAtRiskPaise,
     atRiskPaise: atRisk.v,
     failedCount: atRisk.n,
     recoveredPaise: recovered.v,

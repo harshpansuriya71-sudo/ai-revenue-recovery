@@ -45,14 +45,14 @@ export default function DashboardPage() {
       <section className="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <StatCard
           label="Revenue at risk"
-          value={rupees(s.atRiskPaise, { compact: true })}
-          sub={`${s.failedCount} failed payments`}
+          value={rupees(s.totalAtRiskPaise, { compact: true })}
+          sub={`${s.failedCount + s.recoveredCount} failed payments`}
           tone="danger"
         />
         <StatCard
           label="Recovered"
           value={rupees(s.recoveredPaise, { compact: true })}
-          sub={`${s.recoveredCount} payments rescued`}
+          sub={`${s.recoveredCount} rescued · ${rupees(s.atRiskPaise, { compact: true })} still open`}
           tone="success"
         />
         {/* Scoped to cases the agent has actually worked, so it matches the baseline panel.
