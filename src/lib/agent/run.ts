@@ -59,7 +59,7 @@ function parseDecision(text: string): Partial<AgentDecision> {
  * rather than surfacing it.
  */
 async function generateWithBackoff(ai: GoogleGenAI, contents: Content[]) {
-  const delays = [2000, 5000, 12000, 25000];
+  const delays = [3000, 8000, 20000, 40000, 60000];
   for (let attempt = 0; ; attempt++) {
     try {
       return await ai.models.generateContent({

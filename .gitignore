@@ -45,3 +45,5 @@ next-env.d.ts
 /data/*.db-journal
 .env.local
 !.env.example
+/data/*.db-wal
+/data/*.db-shm

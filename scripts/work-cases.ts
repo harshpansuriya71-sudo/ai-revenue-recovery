@@ -10,7 +10,7 @@ import { getDb } from "../src/lib/db";
 import { runAgentOnPayment } from "../src/lib/agent/run";
 
 const COUNT = Number(process.argv[2] ?? 12);
-const CONCURRENCY = 3;
+const CONCURRENCY = 2;
 
 function pending(limit: number): string[] {
   return (

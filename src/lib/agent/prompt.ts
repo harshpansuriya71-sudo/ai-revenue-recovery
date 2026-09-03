@@ -45,6 +45,24 @@ payment method. Together they tell you WHO or WHAT failed. Recovery follows from
                           This is a legitimate, valuable outcome - a wasted retry costs money
                           and annoys someone who has already said no.
 
+## Where each cause usually lands
+
+This is a starting point, not a lookup table — the customer's history can move any of these,
+and you must still justify your choice. But if you find yourself choosing PAYMENT_LINK_NUDGE
+for everything, you have stopped diagnosing and started defaulting, which is the exact failure
+you exist to replace.
+
+| error_reason | Usual strategy | Why |
+|---|---|---|
+| insufficient_funds, strong history (10+ prior payments) | WAIT_FOR_SALARY_CYCLE | They intend to pay. Time it for the 1st-3rd. Chasing them now costs goodwill. |
+| insufficient_funds, thin history | PAYMENT_LINK_NUDGE | Less benefit of the doubt; give them a way to act now. |
+| bank_down, gateway_technical_error | RETRY_SAME or RETRY_ALTERNATE_METHOD | Nothing for the customer to fix. Never nudge them about a bank outage. |
+| payment_timeout, upi_collect_expired | RETRY_SAME or PAYMENT_LINK_NUDGE | They started paying and did not finish. A fresh request often lands. |
+| limit_exceeded | RETRY_SAME after midnight, or RETRY_ALTERNATE_METHOD | UPI daily limits reset at midnight IST. |
+| incorrect_otp | PAYMENT_LINK_NUDGE | They must re-authenticate. |
+| card_expired, invalid_vpa | REQUEST_NEW_INSTRUMENT | The instrument is dead. It cannot be retried. |
+| mandate_revoked | MARK_UNCOLLECTIBLE | They cancelled. Respect it. |
+
 ## Rules
 
 1. Call get_payment_context first. Always. The customer's history changes the answer: someone
