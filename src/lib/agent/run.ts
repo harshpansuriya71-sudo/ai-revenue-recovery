@@ -20,7 +20,7 @@ import {
  * which is what the case timeline in the UI renders.
  */
 
-const MODEL = process.env.GEMINI_MODEL ?? "gemini-3.6-flash";
+const MODEL = process.env.GEMINI_MODEL ?? "gemini-flash-lite-latest";
 const MAX_TURNS = 8;
 
 export interface AgentDecision {
@@ -50,6 +50,33 @@ function parseDecision(text: string): Partial<AgentDecision> {
     };
   } catch {
     return {};
+  }
+}
+
+/**
+ * The free tier enforces a per-minute request cap, and working a batch of cases trips it
+ * routinely. A 429 mid-demo is indistinguishable from a broken agent, so retry with backoff
+ * rather than surfacing it.
+ */
+async function generateWithBackoff(ai: GoogleGenAI, contents: Content[]) {
+  const delays = [2000, 5000, 12000, 25000];
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return await ai.models.generateContent({
+        model: MODEL,
+        contents,
+        config: {
+          systemInstruction: SYSTEM_PROMPT,
+          tools: [{ functionDeclarations: TOOL_DECLARATIONS }],
+          temperature: 0.2,
+        },
+      });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      const rateLimited = message.includes("429") || message.includes("RESOURCE_EXHAUSTED");
+      if (!rateLimited || attempt >= delays.length) throw err;
+      await new Promise((r) => setTimeout(r, delays[attempt]));
+    }
   }
 }
 
@@ -95,15 +122,7 @@ export async function runAgentOnPayment(paymentId: string): Promise<AgentDecisio
   let finalText = "";
 
   for (let turn = 0; turn < MAX_TURNS; turn++) {
-    const response = await ai.models.generateContent({
-      model: MODEL,
-      contents,
-      config: {
-        systemInstruction: SYSTEM_PROMPT,
-        tools: [{ functionDeclarations: TOOL_DECLARATIONS }],
-        temperature: 0.2,
-      },
-    });
+    const response = await generateWithBackoff(ai, contents);
 
     const parts = response.candidates?.[0]?.content?.parts ?? [];
     const calls = response.functionCalls ?? [];

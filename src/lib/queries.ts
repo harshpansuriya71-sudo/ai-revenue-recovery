@@ -295,3 +295,22 @@ export function stats() {
     timeline,
   };
 }
+
+/** One case with its payment and customer joined, for the case detail page. */
+export function getCaseDetail(caseId: string) {
+  const row = getDb()
+    .prepare(
+      `SELECT c.*,
+              p.amount_paise, p.method, p.bank, p.description, p.is_recurring,
+              p.error_code, p.error_reason, p.error_source, p.error_step,
+              p.error_description, p.failed_at, p.order_id,
+              cu.name AS customer_name, cu.email AS customer_email, cu.phone AS customer_phone,
+              cu.prior_success_count, cu.prior_failure_count, cu.lifetime_value_paise
+       FROM recovery_cases c
+       JOIN payments p   ON p.id = c.payment_id
+       JOIN customers cu ON cu.id = p.customer_id
+       WHERE c.id = ?`
+    )
+    .get(caseId);
+  return row ? plain<Record<string, unknown>>(row) : undefined;
+}

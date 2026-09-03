@@ -8,7 +8,9 @@
     "start": "next start",
     "lint": "eslint",
     "seed": "tsx scripts/seed.ts",
-    "try-agent": "tsx --env-file=.env.local scripts/try-agent.ts"
+    "try-agent": "tsx --env-file=.env.local scripts/try-agent.ts",
+    "work": "tsx --env-file=.env.local scripts/work-cases.ts",
+    "settle": "tsx --env-file=.env.local scripts/settle.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.123.0",

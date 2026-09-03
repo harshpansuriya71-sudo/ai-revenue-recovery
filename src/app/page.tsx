@@ -5,6 +5,8 @@ import { RecoveryChart } from "@/components/RecoveryChart";
 import { FailureBreakdown } from "@/components/FailureBreakdown";
 import { CaseTable, type CaseListRow } from "@/components/CaseTable";
 import { RunAllButton } from "@/components/RunAllButton";
+import { BaselineCompare } from "@/components/BaselineCompare";
+import { baselineComparison } from "@/lib/outcomes";
 
 // Every load reflects current database state; the agent changes it as it works.
 export const dynamic = "force-dynamic";
@@ -12,6 +14,7 @@ export const dynamic = "force-dynamic";
 export default function DashboardPage() {
   const s = stats();
   const cases = listCases(200) as unknown as CaseListRow[];
+  const base = baselineComparison();
 
   const unworked = cases.filter((c) => !c.strategy);
 
@@ -52,10 +55,12 @@ export default function DashboardPage() {
           sub={`${s.recoveredCount} payments rescued`}
           tone="success"
         />
+        {/* Scoped to cases the agent has actually worked, so it matches the baseline panel.
+            Rating it against untouched cases would just measure how much is left to do. */}
         <StatCard
           label="Recovery rate"
-          value={percent(s.recoveryRate)}
-          sub="of at-risk revenue reclaimed"
+          value={percent(base.reboundRate)}
+          sub={`of ${rupees(base.workedPaise, { compact: true })} worked`}
           tone="accent"
         />
         <StatCard
@@ -67,7 +72,16 @@ export default function DashboardPage() {
 
       <section className="mt-6 grid gap-4 lg:grid-cols-[1.6fr_1fr]">
         <RecoveryChart data={s.timeline} />
-        <FailureBreakdown rows={s.byReason} />
+        <div className="space-y-4">
+          <BaselineCompare
+            recoveredPaise={base.reboundPaise}
+            recoveryRate={base.reboundRate}
+            baselinePaise={base.baselinePaise}
+            baselineRate={base.baselineRate}
+            workedCount={base.workedCount}
+          />
+          <FailureBreakdown rows={s.byReason} />
+        </div>
       </section>
 
       {s.byStrategy.length > 0 && (
