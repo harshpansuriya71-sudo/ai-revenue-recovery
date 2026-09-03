@@ -3,6 +3,7 @@ import { getBankHealth } from "../bank-health";
 import { createPaymentLink } from "../razorpay";
 import {
   customerFailureHistory,
+  getCase,
   getCustomer,
   getPayment,
   logAction,
@@ -222,6 +223,30 @@ export async function executeTool(
         };
       }
 
+      // Guard the central claim of the product: never retry into an outage the feed already
+      // told us about. The prompt asks for this; the tool enforces it, because a prompt can
+      // be ignored and this is the one mistake the whole project exists to prevent.
+      const health = getBankHealth(String(ctx.payment.bank ?? ""));
+      const railStillDown =
+        health.status !== "healthy" &&
+        health.estimatedRecoveryMinutes != null &&
+        health.affectedMethods.includes(method);
+
+      if (railStillDown) {
+        const clearsAt = Date.now() + health.estimatedRecoveryMinutes! * 60000;
+        if (parsed < clearsAt) {
+          return {
+            scheduled: false,
+            error:
+              `${health.bank} ${method} is ${health.status} for about another ` +
+              `${health.estimatedRecoveryMinutes} minutes, so a retry at ${retryAt} would land ` +
+              `inside the outage and fail again. Either schedule after ` +
+              `${new Date(clearsAt).toISOString()}, or retry on a method that is not affected ` +
+              `(currently affected: ${health.affectedMethods.join(", ")}).`,
+          };
+        }
+      }
+
       updateCase(ctx.caseId, {
         status: "scheduled",
         retry_at: retryAt,
@@ -272,6 +297,22 @@ export async function executeTool(
 
     case "mark_uncollectible": {
       const reason = String(args.reason ?? "");
+
+      // Refuse to contradict an active recovery. The model has repeatedly created a payment
+      // link — committing to recovery — and then written the same case off in the next call.
+      // The prompt asks it not to; the tool makes it impossible.
+      const current = getCase(ctx.caseId);
+      if (current?.payment_link_url) {
+        return {
+          closed: false,
+          error:
+            `This case already has an active payment link (${current.payment_link_url}), so ` +
+            `recovery is already underway and it cannot be written off. If the instrument is ` +
+            `dead but the customer is otherwise good, the correct strategy is ` +
+            `REQUEST_NEW_INSTRUMENT — the link you created is how they pay with a new one. ` +
+            `Finish by calling draft_nudge instead.`,
+        };
+      }
       updateCase(ctx.caseId, {
         status: "uncollectible",
         resolved_at: new Date().toISOString(),

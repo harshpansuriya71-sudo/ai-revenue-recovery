@@ -6,6 +6,7 @@ import { futureTime, relativeTime, rupees } from "@/lib/format";
 import { Badge, statusTone, strategyTone } from "@/components/Badge";
 import { AgentTimeline } from "@/components/AgentTimeline";
 import { NudgePreview } from "@/components/NudgePreview";
+import { LiveAgentRunner } from "@/components/LiveAgentRunner";
 
 export const dynamic = "force-dynamic";
 
@@ -141,7 +142,12 @@ export default async function CasePage({ params }: PageProps<"/cases/[id]">) {
         </div>
 
         <div className="space-y-4">
-          <AgentTimeline actions={actions} />
+          {/* Unworked cases get the live runner; worked ones show the recorded timeline. */}
+          {strategy ? (
+            <AgentTimeline actions={actions} />
+          ) : (
+            <LiveAgentRunner paymentId={String(c.payment_id)} />
+          )}
           {c.nudge_message && (
             <NudgePreview
               channel={c.nudge_channel as string | null}

@@ -32,6 +32,20 @@ export interface AgentDecision {
   expectedRecoveryNote?: string;
 }
 
+/**
+ * Progress events, so the UI can show the agent working rather than a spinner followed by a
+ * finished log. Purely additive — callers that don't pass onEvent behave exactly as before.
+ */
+export type AgentEvent =
+  | { type: "start"; caseId: string; paymentId: string }
+  | { type: "thinking"; text: string }
+  | { type: "tool_call"; tool: string; args: Record<string, unknown> }
+  | { type: "tool_result"; tool: string; result: Record<string, unknown> }
+  | { type: "decision"; decision: AgentDecision }
+  | { type: "error"; message: string };
+
+export type AgentEventHandler = (event: AgentEvent) => void;
+
 function parseDecision(text: string): Partial<AgentDecision> {
   // Models commonly wrap JSON in a fenced block; tolerate both shapes.
   const fenced = text.match(/```(?:json)?\s*([\s\S]*?)```/);
@@ -74,13 +88,28 @@ async function generateWithBackoff(ai: GoogleGenAI, contents: Content[]) {
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       const rateLimited = message.includes("429") || message.includes("RESOURCE_EXHAUSTED");
-      if (!rateLimited || attempt >= delays.length) throw err;
+      if (!rateLimited) throw err;
+
+      // A per-day cap will not clear by waiting a minute, so stop retrying and say so
+      // plainly. Silently backing off looks identical to a hung agent.
+      const dailyCap = message.includes("PerDay");
+      if (dailyCap || attempt >= delays.length) {
+        throw new Error(
+          dailyCap
+            ? "Gemini free-tier daily request limit reached (500/day). It resets at midnight " +
+              "Pacific time. Existing worked cases are unaffected."
+            : "Gemini rate limit persisted after several retries. Wait a minute and try again."
+        );
+      }
       await new Promise((r) => setTimeout(r, delays[attempt]));
     }
   }
 }
 
-export async function runAgentOnPayment(paymentId: string): Promise<AgentDecision> {
+export async function runAgentOnPayment(
+  paymentId: string,
+  onEvent?: AgentEventHandler
+): Promise<AgentDecision> {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) throw new Error("GEMINI_API_KEY is not set — add it to .env.local");
 
@@ -94,6 +123,7 @@ export async function runAgentOnPayment(paymentId: string): Promise<AgentDecisio
   const ctx: ToolContext = { caseId: kase.id, payment, customer };
 
   updateCase(kase.id, { status: "working" });
+  onEvent?.({ type: "start", caseId: kase.id, paymentId });
 
   const ai = new GoogleGenAI({ apiKey });
   const contents: Content[] = [
@@ -136,6 +166,7 @@ export async function runAgentOnPayment(paymentId: string): Promise<AgentDecisio
 
     if (narration && calls.length) {
       logAction({ case_id: kase.id, kind: "thinking", text: narration });
+      onEvent?.({ type: "thinking", text: narration });
     }
 
     if (!calls.length) {
@@ -149,7 +180,9 @@ export async function runAgentOnPayment(paymentId: string): Promise<AgentDecisio
     for (const call of calls) {
       const name = call.name ?? "";
       const args = (call.args ?? {}) as Record<string, unknown>;
+      onEvent?.({ type: "tool_call", tool: name, args });
       const result = await runAndLog(name, args, ctx);
+      onEvent?.({ type: "tool_result", tool: name, result });
       resultParts.push({ functionResponse: { name, response: result } });
     }
     contents.push({ role: "user", parts: resultParts });
@@ -174,7 +207,7 @@ export async function runAgentOnPayment(paymentId: string): Promise<AgentDecisio
     status: current?.status === "uncollectible" ? "uncollectible" : (current?.status ?? "working"),
   });
 
-  return {
+  const finalDecision: AgentDecision = {
     caseId: kase.id,
     diagnosis: decision.diagnosis ?? "",
     strategy,
@@ -182,4 +215,7 @@ export async function runAgentOnPayment(paymentId: string): Promise<AgentDecisio
     confidence: decision.confidence ?? 0,
     expectedRecoveryNote: decision.expectedRecoveryNote,
   };
+
+  onEvent?.({ type: "decision", decision: finalDecision });
+  return finalDecision;
 }

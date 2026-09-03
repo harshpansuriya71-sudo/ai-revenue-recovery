@@ -10,7 +10,8 @@
     "seed": "tsx scripts/seed.ts",
     "try-agent": "tsx --env-file=.env.local scripts/try-agent.ts",
     "work": "tsx --env-file=.env.local scripts/work-cases.ts",
-    "settle": "tsx --env-file=.env.local scripts/settle.ts"
+    "settle": "tsx --env-file=.env.local scripts/settle.ts",
+    "eval": "tsx --env-file=.env.local scripts/eval.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.123.0",
